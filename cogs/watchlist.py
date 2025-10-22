@@ -4,7 +4,93 @@ Watchlist commands cog - manage group stock watchlists
 import discord
 from discord.ext import commands
 import config
-from utils import database, stock_api
+from utils import database, stock_api, chart_generator, earnings
+
+
+class ChartTimelineView(discord.ui.View):
+    """Interactive buttons for chart timeline selection"""
+
+    def __init__(self, symbol, current_period='1mo'):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.symbol = symbol
+        self.current_period = current_period
+
+    async def update_chart(self, interaction: discord.Interaction, period: str):
+        """Update chart with new period"""
+        await interaction.response.defer()
+
+        # Generate new chart
+        chart_file = await chart_generator.generate_stock_chart(self.symbol, period)
+
+        if not chart_file:
+            await interaction.followup.send("❌ Failed to generate chart", ephemeral=True)
+            return
+
+        # Get stock info
+        stock_info = await stock_api.get_stock_info(self.symbol)
+
+        if not stock_info:
+            await interaction.followup.send("❌ Failed to fetch stock data", ephemeral=True)
+            return
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"{stock_info['symbol']} - {stock_info['name']}",
+            color=discord.Color.green() if stock_info['change'] >= 0 else discord.Color.red()
+        )
+
+        # Price and change
+        price_str = stock_api.format_price(stock_info['price'], stock_info['currency'])
+        change_str = stock_api.format_change(stock_info['change'], stock_info['change_percent'])
+
+        embed.add_field(name="Price", value=price_str, inline=True)
+        embed.add_field(name="Change (Day)", value=change_str, inline=True)
+
+        # Market cap if available
+        if stock_info.get('market_cap'):
+            market_cap = stock_info['market_cap']
+            if market_cap >= 1_000_000_000:
+                market_cap_str = f"${market_cap / 1_000_000_000:.2f}B"
+            elif market_cap >= 1_000_000:
+                market_cap_str = f"${market_cap / 1_000_000:.2f}M"
+            else:
+                market_cap_str = f"${market_cap:,.0f}"
+            embed.add_field(name="Market Cap", value=market_cap_str, inline=True)
+
+        # Volume if available
+        if stock_info.get('volume'):
+            volume_str = f"{stock_info['volume']:,}"
+            embed.add_field(name="Volume", value=volume_str, inline=True)
+
+        embed.set_image(url=f"attachment://{self.symbol}_{period}.png")
+        embed.set_footer(text=f"Viewing: {chart_generator.get_period_display(period)} • Data from Yahoo Finance")
+
+        # Update view with current period
+        self.current_period = period
+        new_view = ChartTimelineView(self.symbol, period)
+
+        # Edit original message
+        await interaction.message.edit(embed=embed, attachments=[chart_file], view=new_view)
+
+    @discord.ui.button(label='1D', style=discord.ButtonStyle.secondary)
+    async def one_day(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_chart(interaction, '1d')
+
+    @discord.ui.button(label='5D', style=discord.ButtonStyle.secondary)
+    async def five_days(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_chart(interaction, '5d')
+
+    @discord.ui.button(label='1M', style=discord.ButtonStyle.primary)
+    async def one_month(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_chart(interaction, '1mo')
+
+    @discord.ui.button(label='3M', style=discord.ButtonStyle.secondary)
+    async def three_months(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_chart(interaction, '3mo')
+
+    @discord.ui.button(label='1Y', style=discord.ButtonStyle.secondary)
+    async def one_year(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_chart(interaction, '1y')
 
 
 class Watchlist(commands.Cog):
@@ -201,22 +287,40 @@ class Watchlist(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @commands.command(name='stock', aliases=['quote', 'price'])
-    async def stock_info(self, ctx, symbol: str):
+    @commands.command(name='stock', aliases=['quote', 'price', 'chart'])
+    async def stock_info(self, ctx, symbol: str, period: str = "1mo"):
         """
-        Get detailed information about a specific stock
+        Get detailed information and chart for a stock
 
         Usage: !stock AAPL
+        Usage: !stock AAPL 1y
         """
         symbol = symbol.upper()
 
-        await ctx.send(f"⏳ Fetching data for {symbol}...")
+        # Validate period
+        valid_periods = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '5y']
+        if period not in valid_periods:
+            period = '1mo'
 
-        stock_info = await stock_api.get_stock_info(symbol)
+        loading_msg = await ctx.send(f"⏳ Fetching data and generating chart for {symbol}...")
+
+        # Fetch stock info and chart in parallel
+        import asyncio
+        stock_info_task = stock_api.get_stock_info(symbol)
+        chart_task = chart_generator.generate_stock_chart(symbol, period)
+
+        stock_info, chart_file = await asyncio.gather(stock_info_task, chart_task)
 
         if not stock_info:
-            await ctx.send(f"❌ Could not find information for `{symbol}`")
+            await loading_msg.edit(content=f"❌ Could not find information for `{symbol}`")
             return
+
+        if not chart_file:
+            await loading_msg.edit(content=f"❌ Failed to generate chart for `{symbol}`")
+            return
+
+        # Delete loading message
+        await loading_msg.delete()
 
         # Create detailed embed
         embed = discord.Embed(
@@ -248,7 +352,152 @@ class Watchlist(commands.Cog):
             volume_str = f"{stock_info['volume']:,}"
             embed.add_field(name="Volume", value=volume_str, inline=True)
 
-        embed.set_footer(text="Data provided by Yahoo Finance")
+        # Attach chart image
+        embed.set_image(url=f"attachment://{symbol}_{period}.png")
+        embed.set_footer(text=f"Viewing: {chart_generator.get_period_display(period)} • Data from Yahoo Finance")
+
+        # Create interactive view with timeline buttons
+        view = ChartTimelineView(symbol, period)
+
+        await ctx.send(embed=embed, file=chart_file, view=view)
+
+    @commands.command(name='earnings', aliases=['er', 'earningsdate'])
+    async def earnings_info(self, ctx, symbol: str):
+        """
+        Get earnings information for a specific stock
+
+        Usage: !earnings AAPL
+        """
+        symbol = symbol.upper()
+
+        await ctx.send(f"⏳ Fetching earnings data for {symbol}...")
+
+        earnings_data = await earnings.get_stock_earnings(symbol)
+
+        if not earnings_data:
+            await ctx.send(f"❌ No earnings data available for `{symbol}`")
+            return
+
+        # Get stock info for company name
+        stock_info = await stock_api.get_stock_info(symbol)
+        company_name = stock_info['name'] if stock_info else symbol
+
+        # Create embed
+        if earnings_data['is_upcoming']:
+            title = f"📅 Upcoming Earnings - {symbol}"
+            color = discord.Color.blue()
+        else:
+            title = f"📊 Last Earnings - {symbol}"
+            color = discord.Color.dark_grey()
+
+        embed = discord.Embed(
+            title=title,
+            description=company_name,
+            color=color
+        )
+
+        # Earnings date
+        date_str = earnings.format_earnings_date(earnings_data['date'])
+        embed.add_field(name="Date", value=date_str, inline=False)
+
+        # EPS data if available
+        if earnings_data['eps_estimate'] is not None:
+            embed.add_field(
+                name="EPS Estimate",
+                value=f"${earnings_data['eps_estimate']:.2f}",
+                inline=True
+            )
+
+        if earnings_data['eps_actual'] is not None:
+            embed.add_field(
+                name="Reported EPS",
+                value=f"${earnings_data['eps_actual']:.2f}",
+                inline=True
+            )
+
+            # Calculate beat/miss if both available
+            if earnings_data['eps_estimate'] is not None:
+                diff = earnings_data['eps_actual'] - earnings_data['eps_estimate']
+                if diff > 0:
+                    status = f"✅ Beat by ${diff:.2f}"
+                    status_color = "🟢"
+                elif diff < 0:
+                    status = f"❌ Missed by ${abs(diff):.2f}"
+                    status_color = "🔴"
+                else:
+                    status = "➡️ Met expectations"
+                    status_color = "⚪"
+
+                embed.add_field(
+                    name="Result",
+                    value=f"{status_color} {status}",
+                    inline=True
+                )
+
+        embed.set_footer(text="Data from Yahoo Finance")
+
+        await ctx.send(embed=embed)
+
+    @commands.command(name='calendar', aliases=['cal', 'earningscal'])
+    async def earnings_calendar(self, ctx):
+        """
+        View upcoming earnings for watchlist stocks
+
+        Usage: !calendar
+        """
+        stocks = await database.get_watchlist_stocks(ctx.guild.id)
+
+        if not stocks:
+            await ctx.send(f"No stocks in watchlist! Use `{config.COMMAND_PREFIX}addstock` to add some.")
+            return
+
+        loading_msg = await ctx.send(f"⏳ Fetching earnings calendar for {len(stocks)} stocks...")
+
+        # Get earnings for all watchlist stocks
+        symbols = [stock['symbol'] for stock in stocks]
+        upcoming_earnings = await earnings.get_watchlist_earnings(symbols)
+
+        await loading_msg.delete()
+
+        if not upcoming_earnings:
+            embed = discord.Embed(
+                title="📅 Earnings Calendar",
+                description="No upcoming earnings dates found for watchlist stocks.",
+                color=config.BOT_COLOR
+            )
+            await ctx.send(embed=embed)
+            return
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"📅 {ctx.guild.name} - Earnings Calendar",
+            description=f"Upcoming earnings for {len(upcoming_earnings)} stocks",
+            color=discord.Color.blue()
+        )
+
+        # Add each earnings date
+        for earning in upcoming_earnings[:15]:  # Limit to 15
+            date_str = earnings.format_earnings_date(earning['date'])
+
+            # Get stock info for company name
+            stock_info = await stock_api.get_stock_info(earning['symbol'])
+            company_name = stock_info['name'] if stock_info else earning['symbol']
+
+            value = f"**{company_name}**\n{date_str}"
+
+            if earning['eps_estimate'] is not None:
+                value += f"\nEPS Est: ${earning['eps_estimate']:.2f}"
+
+            embed.add_field(
+                name=f"📊 {earning['symbol']}",
+                value=value,
+                inline=True
+            )
+
+        if len(upcoming_earnings) > 15:
+            embed.set_footer(text=f"Showing 15 of {len(upcoming_earnings)} upcoming earnings")
+        else:
+            embed.set_footer(text=f"Use !earnings <SYMBOL> for detailed information")
 
         await ctx.send(embed=embed)
 
