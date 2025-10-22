@@ -54,6 +54,7 @@ async def load_cogs():
     cogs_to_load = [
         'cogs.basic',
         'cogs.watchlist',
+        'cogs.paper_trading',
     ]
 
     for cog in cogs_to_load:
