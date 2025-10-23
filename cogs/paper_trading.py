@@ -37,7 +37,6 @@ class PaperTrading(commands.Cog):
             inline=True
         )
 
-        # Calculate total portfolio value
         total_value = account['cash']
         positions = account.get('positions', [])
 
@@ -62,7 +61,6 @@ class PaperTrading(commands.Cog):
             inline=True
         )
 
-        # Calculate P/L
         profit_loss = total_value - paper_trading.STARTING_BALANCE
         profit_pct = (profit_loss / paper_trading.STARTING_BALANCE) * 100
 
@@ -92,7 +90,6 @@ class PaperTrading(commands.Cog):
 
         symbol = symbol.upper()
 
-        # Get current stock price
         await ctx.send(f"⏳ Fetching current price for {symbol}...")
         stock_info = await stock_api.get_stock_info(symbol)
 
@@ -103,7 +100,6 @@ class PaperTrading(commands.Cog):
         price = stock_info['price']
         total_cost = price * quantity
 
-        # Execute buy
         success, message = await paper_trading.buy_stock(
             ctx.author.id,
             ctx.guild.id,
@@ -142,7 +138,6 @@ class PaperTrading(commands.Cog):
 
         symbol = symbol.upper()
 
-        # Get current stock price
         await ctx.send(f"⏳ Fetching current price for {symbol}...")
         stock_info = await stock_api.get_stock_info(symbol)
 
@@ -152,7 +147,6 @@ class PaperTrading(commands.Cog):
 
         price = stock_info['price']
 
-        # Execute sell
         success, message = await paper_trading.sell_stock(
             ctx.author.id,
             ctx.guild.id,
@@ -200,7 +194,6 @@ class PaperTrading(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        # Fetch current prices for all positions
         loading_msg = await ctx.send(f"⏳ Fetching data for {len(positions)} positions...")
 
         import asyncio
@@ -208,7 +201,6 @@ class PaperTrading(commands.Cog):
         tasks = [stock_api.get_stock_info(symbol) for symbol in symbols]
         results = await asyncio.gather(*tasks)
 
-        # Calculate total values
         total_value = account['cash']
         total_cost_basis = 0
         position_data = []
@@ -235,7 +227,6 @@ class PaperTrading(commands.Cog):
 
         await loading_msg.delete()
 
-        # Create embed
         total_pl = total_value - paper_trading.STARTING_BALANCE
         total_pl_pct = (total_pl / paper_trading.STARTING_BALANCE) * 100
 
@@ -246,8 +237,7 @@ class PaperTrading(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
 
-        # Add each position
-        for pos in position_data[:10]:  # Limit to 10 positions
+        for pos in position_data[:10]:
             emoji = "🟢" if pos['profit_loss'] >= 0 else "🔴"
             sign = "+" if pos['profit_loss'] >= 0 else ""
 
@@ -259,7 +249,6 @@ class PaperTrading(commands.Cog):
                 inline=True
             )
 
-        # Overall P/L
         emoji = "🟢" if total_pl >= 0 else "🔴"
         sign = "+" if total_pl >= 0 else ""
 
@@ -358,7 +347,6 @@ class PaperTrading(commands.Cog):
             await ctx.send(f"❌ Invalid category. Use: `value`, `gainers`, or `volume`")
             return
 
-        # Get all accounts in the server
         accounts = await paper_trading.get_all_accounts(ctx.guild.id)
 
         if not accounts:
@@ -367,7 +355,6 @@ class PaperTrading(commands.Cog):
 
         loading_msg = await ctx.send(f"⏳ Calculating leaderboard for {len(accounts)} traders...")
 
-        # Calculate portfolio values for all users
         import asyncio
         user_data = []
 
@@ -375,7 +362,6 @@ class PaperTrading(commands.Cog):
             total_value = account['cash']
             positions = account.get('positions', [])
 
-            # Fetch current prices for positions
             if positions:
                 symbols = [p['symbol'] for p in positions]
                 tasks = [stock_api.get_stock_info(symbol) for symbol in symbols]
@@ -388,7 +374,6 @@ class PaperTrading(commands.Cog):
             profit_loss = total_value - paper_trading.STARTING_BALANCE
             profit_pct = (profit_loss / paper_trading.STARTING_BALANCE) * 100
 
-            # Get transaction count for volume leaderboard
             if category == 'volume':
                 txn_count = await paper_trading.get_user_transaction_count(
                     int(account['user_id']),
@@ -407,7 +392,6 @@ class PaperTrading(commands.Cog):
 
         await loading_msg.delete()
 
-        # Sort based on category
         if category == 'value':
             user_data.sort(key=lambda x: x['total_value'], reverse=True)
             title = "🏆 Leaderboard - Total Portfolio Value"
@@ -416,7 +400,7 @@ class PaperTrading(commands.Cog):
             user_data.sort(key=lambda x: x['profit_pct'], reverse=True)
             title = "📈 Leaderboard - Top Gainers"
             description = "Top traders by percentage gain"
-        else:  # volume
+        else:
             user_data.sort(key=lambda x: x['txn_count'], reverse=True)
             title = "🔥 Leaderboard - Most Active"
             description = "Top traders by number of transactions"
@@ -428,24 +412,20 @@ class PaperTrading(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
 
-        # Add top 10 users
         medals = ["🥇", "🥈", "🥉"]
 
         for i, user in enumerate(user_data[:10], 1):
-            # Get Discord user
             try:
                 discord_user = await self.bot.fetch_user(int(user['user_id']))
                 username = discord_user.name
             except:
                 username = "Unknown User"
 
-            # Medal for top 3
             if i <= 3:
                 rank_display = medals[i - 1]
             else:
                 rank_display = f"`#{i}`"
 
-            # Format based on category
             if category == 'value':
                 value_display = f"${user['total_value']:,.2f}"
                 pl_emoji = "🟢" if user['profit_loss'] >= 0 else "🔴"

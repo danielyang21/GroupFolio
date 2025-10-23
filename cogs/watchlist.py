@@ -19,34 +19,29 @@ class ChartTimelineView(discord.ui.View):
         """Update chart with new period"""
         await interaction.response.defer()
 
-        # Generate new chart
         chart_file = await chart_generator.generate_stock_chart(self.symbol, period)
 
         if not chart_file:
             await interaction.followup.send("❌ Failed to generate chart", ephemeral=True)
             return
 
-        # Get stock info
         stock_info = await stock_api.get_stock_info(self.symbol)
 
         if not stock_info:
             await interaction.followup.send("❌ Failed to fetch stock data", ephemeral=True)
             return
 
-        # Create embed
         embed = discord.Embed(
             title=f"{stock_info['symbol']} - {stock_info['name']}",
             color=discord.Color.green() if stock_info['change'] >= 0 else discord.Color.red()
         )
 
-        # Price and change
         price_str = stock_api.format_price(stock_info['price'], stock_info['currency'])
         change_str = stock_api.format_change(stock_info['change'], stock_info['change_percent'])
 
         embed.add_field(name="Price", value=price_str, inline=True)
         embed.add_field(name="Change (Day)", value=change_str, inline=True)
 
-        # Market cap if available
         if stock_info.get('market_cap'):
             market_cap = stock_info['market_cap']
             if market_cap >= 1_000_000_000:
@@ -57,7 +52,6 @@ class ChartTimelineView(discord.ui.View):
                 market_cap_str = f"${market_cap:,.0f}"
             embed.add_field(name="Market Cap", value=market_cap_str, inline=True)
 
-        # Volume if available
         if stock_info.get('volume'):
             volume_str = f"{stock_info['volume']:,}"
             embed.add_field(name="Volume", value=volume_str, inline=True)
@@ -65,11 +59,9 @@ class ChartTimelineView(discord.ui.View):
         embed.set_image(url=f"attachment://{self.symbol}_{period}.png")
         embed.set_footer(text=f"Viewing: {chart_generator.get_period_display(period)} • Data from Yahoo Finance")
 
-        # Update view with current period
         self.current_period = period
         new_view = ChartTimelineView(self.symbol, period)
 
-        # Edit original message
         await interaction.message.edit(embed=embed, attachments=[chart_file], view=new_view)
 
     @discord.ui.button(label='1D', style=discord.ButtonStyle.secondary)
@@ -106,10 +98,8 @@ class Watchlist(commands.Cog):
 
         Usage: !addstock AAPL
         """
-        # Convert to uppercase
         symbol = symbol.upper()
 
-        # Validate the stock symbol first
         await ctx.send(f"⏳ Validating {symbol}...")
 
         stock_info = await stock_api.get_stock_info(symbol)
@@ -123,7 +113,6 @@ class Watchlist(commands.Cog):
             await ctx.send(error_msg)
             return
 
-        # Add to database
         success, error = await database.add_stock_to_watchlist(
             guild_id=ctx.guild.id,
             symbol=symbol,
@@ -139,8 +128,6 @@ class Watchlist(commands.Cog):
             else:
                 await ctx.send(f"❌ Failed to add `{symbol}` to the watchlist")
             return
-
-        # Create success embed with stock info
         embed = discord.Embed(
             title=f"✅ Added {stock_info['name']}",
             description=f"**{symbol}** has been added to the watchlist",
@@ -201,20 +188,14 @@ class Watchlist(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        # Fetch current prices for all stocks
         loading_msg = await ctx.send(f"⏳ Fetching data for {len(stocks)} stocks...")
 
-        # Fetch all stocks in parallel for much faster performance
         import asyncio
-        symbols = [stock['symbol'] for stock in stocks[:25]]  # Limit to 25 stocks
+        symbols = [stock['symbol'] for stock in stocks[:25]]
 
-        # Create tasks for parallel fetching
         tasks = [stock_api.get_stock_info(symbol) for symbol in symbols]
-
-        # Fetch all at once (parallel)
         results = await asyncio.gather(*tasks)
 
-        # Calculate overall stats
         total_gainers = 0
         total_losers = 0
         stock_data = []
@@ -227,10 +208,8 @@ class Watchlist(commands.Cog):
                 elif stock_info['change'] < 0:
                     total_losers += 1
 
-        # Delete loading message
         await loading_msg.delete()
 
-        # Create main embed
         embed = discord.Embed(
             title=f"📊 {ctx.guild.name}'s Watchlist",
             description=f"```📈 {total_gainers} Gainers  |  📉 {total_losers} Losers  |  📊 {len(stocks)} Total```",
@@ -238,14 +217,12 @@ class Watchlist(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
 
-        # Add stocks as fields for better mobile support
         for stock_info in stock_data[:10]:
             symbol = stock_info['symbol']
             price = stock_info['price']
             change = stock_info['change']
             change_percent = stock_info['change_percent']
 
-            # Format change properly
             if change > 0:
                 change_str = f"+${change:.2f} (+{change_percent:.2f}%)"
                 emoji = "🟢"
@@ -258,14 +235,12 @@ class Watchlist(commands.Cog):
 
             price_str = f"${price:,.2f}"
 
-            # Use fields with inline for responsive layout
             embed.add_field(
                 name=f"{emoji} {symbol}",
                 value=f"**{price_str}**\n{change_str}",
                 inline=True
             )
 
-        # Add unavailable stocks
         for stock in stocks[len(stock_data):10]:
             embed.add_field(
                 name=f"⚠️ {stock['symbol']}",
@@ -273,7 +248,6 @@ class Watchlist(commands.Cog):
                 inline=True
             )
 
-        # Footer with helpful info
         if len(stocks) > 10:
             embed.set_footer(
                 text=f"Showing 10 of {len(stocks)} stocks • Use !stock <SYMBOL> for details",
@@ -304,7 +278,6 @@ class Watchlist(commands.Cog):
 
         loading_msg = await ctx.send(f"⏳ Fetching data and generating chart for {symbol}...")
 
-        # Fetch stock info and chart in parallel
         import asyncio
         stock_info_task = stock_api.get_stock_info(symbol)
         chart_task = chart_generator.generate_stock_chart(symbol, period)
@@ -319,23 +292,19 @@ class Watchlist(commands.Cog):
             await loading_msg.edit(content=f"❌ Failed to generate chart for `{symbol}`")
             return
 
-        # Delete loading message
         await loading_msg.delete()
 
-        # Create detailed embed
         embed = discord.Embed(
             title=f"{stock_info['symbol']} - {stock_info['name']}",
             color=discord.Color.green() if stock_info['change'] >= 0 else discord.Color.red()
         )
 
-        # Price and change
         price_str = stock_api.format_price(stock_info['price'], stock_info['currency'])
         change_str = stock_api.format_change(stock_info['change'], stock_info['change_percent'])
 
         embed.add_field(name="Price", value=price_str, inline=True)
         embed.add_field(name="Change (Day)", value=change_str, inline=True)
 
-        # Market cap if available
         if stock_info.get('market_cap'):
             market_cap = stock_info['market_cap']
             if market_cap >= 1_000_000_000:
@@ -347,16 +316,13 @@ class Watchlist(commands.Cog):
 
             embed.add_field(name="Market Cap", value=market_cap_str, inline=True)
 
-        # Volume if available
         if stock_info.get('volume'):
             volume_str = f"{stock_info['volume']:,}"
             embed.add_field(name="Volume", value=volume_str, inline=True)
 
-        # Attach chart image
         embed.set_image(url=f"attachment://{symbol}_{period}.png")
         embed.set_footer(text=f"Viewing: {chart_generator.get_period_display(period)} • Data from Yahoo Finance")
 
-        # Create interactive view with timeline buttons
         view = ChartTimelineView(symbol, period)
 
         await ctx.send(embed=embed, file=chart_file, view=view)

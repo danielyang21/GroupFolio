@@ -1,27 +1,14 @@
-"""
-Stock API utilities for fetching stock data
-Using yfinance for free, reliable stock data
-"""
+"""Stock API utilities using yfinance"""
 import yfinance as yf
 
 
 async def get_stock_info(symbol):
-    """
-    Get stock information
-
-    Args:
-        symbol (str): Stock symbol (e.g., 'AAPL')
-
-    Returns:
-        dict: Stock information or None if not found
-    """
+    """Get stock information and price data"""
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
 
-        # Check if stock exists
         if not info or 'regularMarketPrice' not in info:
-            # Try getting current price another way
             hist = ticker.history(period="1d")
             if hist.empty:
                 return None
@@ -36,7 +23,6 @@ async def get_stock_info(symbol):
                 'change_percent': 0
             }
 
-        # Calculate change
         current_price = info.get('regularMarketPrice', 0)
         previous_close = info.get('previousClose', current_price)
         change = current_price - previous_close
@@ -59,30 +45,13 @@ async def get_stock_info(symbol):
 
 
 async def validate_symbol(symbol):
-    """
-    Check if a stock symbol is valid
-
-    Args:
-        symbol (str): Stock symbol to validate
-
-    Returns:
-        bool: True if valid, False otherwise
-    """
+    """Check if a stock symbol is valid"""
     info = await get_stock_info(symbol)
     return info is not None
 
 
 def format_price(price, currency='USD'):
-    """
-    Format price with currency symbol
-
-    Args:
-        price (float): Price value
-        currency (str): Currency code
-
-    Returns:
-        str: Formatted price string
-    """
+    """Format price with currency symbol"""
     symbols = {
         'USD': '$',
         'CAD': 'C$',
@@ -95,16 +64,7 @@ def format_price(price, currency='USD'):
 
 
 def format_change(change, change_percent):
-    """
-    Format price change with emoji
-
-    Args:
-        change (float): Price change
-        change_percent (float): Percentage change
-
-    Returns:
-        str: Formatted change string with emoji
-    """
+    """Format price change with emoji indicator"""
     if change > 0:
         emoji = "📈"
         sign = "+"

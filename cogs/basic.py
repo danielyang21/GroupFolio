@@ -1,14 +1,10 @@
-"""
-Basic commands cog - ping, hello, info
-"""
+"""Basic commands cog"""
 import discord
 from discord.ext import commands
 import config
 
 
 class Basic(commands.Cog):
-    """Basic bot commands"""
-
     def __init__(self, bot):
         self.bot = bot
 
@@ -26,7 +22,6 @@ class Basic(commands.Cog):
     @commands.command(name='info')
     async def info(self, ctx):
         """Display bot information"""
-        # Import here to avoid circular dependency
         import bot as bot_module
 
         embed = discord.Embed(
@@ -37,7 +32,6 @@ class Basic(commands.Cog):
         embed.add_field(name="Prefix", value=config.COMMAND_PREFIX, inline=True)
         embed.add_field(name="Servers", value=len(self.bot.guilds), inline=True)
 
-        # Show database status
         db_status = "✓ Connected" if bot_module.db else "✗ Not connected"
         embed.add_field(name="Database", value=db_status, inline=True)
 
@@ -55,5 +49,4 @@ class Basic(commands.Cog):
 
 
 async def setup(bot):
-    """Required function to load the cog"""
     await bot.add_cog(Basic(bot))

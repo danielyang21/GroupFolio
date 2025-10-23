@@ -1,24 +1,12 @@
-"""
-Paper trading utility functions
-"""
+"""Paper trading utility functions"""
 from datetime import datetime
 from utils.database import get_db
 
-# Starting balance for new users
 STARTING_BALANCE = 100000.00
 
 
 async def get_user_account(user_id, guild_id):
-    """
-    Get or create a user's paper trading account
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-
-    Returns:
-        dict: User account with cash balance and positions
-    """
+    """Get or create a user's paper trading account"""
     db = get_db()
     if db is None:
         return None
@@ -29,12 +17,11 @@ async def get_user_account(user_id, guild_id):
     })
 
     if not account:
-        # Create new account with starting balance
         account = {
             "user_id": str(user_id),
             "guild_id": str(guild_id),
             "cash": STARTING_BALANCE,
-            "positions": [],  # List of holdings
+            "positions": [],
             "created_at": datetime.utcnow()
         }
         await db.paper_accounts.insert_one(account)
@@ -43,19 +30,7 @@ async def get_user_account(user_id, guild_id):
 
 
 async def buy_stock(user_id, guild_id, symbol, quantity, price):
-    """
-    Buy shares of a stock
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-        symbol (str): Stock symbol
-        quantity (int): Number of shares to buy
-        price (float): Current price per share
-
-    Returns:
-        tuple: (success: bool, message: str)
-    """
+    """Buy shares of a stock"""
     db = get_db()
     if db is None:
         return (False, "Database not connected")
@@ -63,16 +38,13 @@ async def buy_stock(user_id, guild_id, symbol, quantity, price):
     account = await get_user_account(user_id, guild_id)
     total_cost = price * quantity
 
-    # Check if user has enough cash
     if account['cash'] < total_cost:
         return (False, f"Insufficient funds. Need ${total_cost:,.2f}, have ${account['cash']:,.2f}")
 
-    # Update or add position
     positions = account.get('positions', [])
     existing_position = next((p for p in positions if p['symbol'] == symbol), None)
 
     if existing_position:
-        # Update existing position (calculate new average cost)
         old_value = existing_position['quantity'] * existing_position['avg_cost']
         new_value = old_value + total_cost
         new_quantity = existing_position['quantity'] + quantity
@@ -93,7 +65,6 @@ async def buy_stock(user_id, guild_id, symbol, quantity, price):
             }
         )
     else:
-        # Add new position
         new_position = {
             "symbol": symbol,
             "quantity": quantity,
@@ -110,26 +81,13 @@ async def buy_stock(user_id, guild_id, symbol, quantity, price):
             }
         )
 
-    # Record transaction
     await record_transaction(user_id, guild_id, "BUY", symbol, quantity, price)
 
     return (True, f"Bought {quantity} shares of {symbol} at ${price:,.2f}")
 
 
 async def sell_stock(user_id, guild_id, symbol, quantity, price):
-    """
-    Sell shares of a stock
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-        symbol (str): Stock symbol
-        quantity (int): Number of shares to sell
-        price (float): Current price per share
-
-    Returns:
-        tuple: (success: bool, message: str)
-    """
+    """Sell shares of a stock"""
     db = get_db()
     if db is None:
         return (False, "Database not connected")
@@ -145,12 +103,9 @@ async def sell_stock(user_id, guild_id, symbol, quantity, price):
         return (False, f"You only own {position['quantity']} shares of {symbol}")
 
     total_sale = price * quantity
-
-    # Update position
     new_quantity = position['quantity'] - quantity
 
     if new_quantity == 0:
-        # Remove position entirely
         await db.paper_accounts.update_one(
             {
                 "user_id": str(user_id),
@@ -162,7 +117,6 @@ async def sell_stock(user_id, guild_id, symbol, quantity, price):
             }
         )
     else:
-        # Update quantity
         await db.paper_accounts.update_one(
             {
                 "user_id": str(user_id),
@@ -175,10 +129,8 @@ async def sell_stock(user_id, guild_id, symbol, quantity, price):
             }
         )
 
-    # Record transaction
     await record_transaction(user_id, guild_id, "SELL", symbol, quantity, price)
 
-    # Calculate profit/loss
     cost_basis = position['avg_cost'] * quantity
     profit_loss = total_sale - cost_basis
     profit_pct = (profit_loss / cost_basis) * 100
@@ -187,17 +139,7 @@ async def sell_stock(user_id, guild_id, symbol, quantity, price):
 
 
 async def record_transaction(user_id, guild_id, action, symbol, quantity, price):
-    """
-    Record a transaction in history
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-        action (str): "BUY" or "SELL"
-        symbol (str): Stock symbol
-        quantity (int): Number of shares
-        price (float): Price per share
-    """
+    """Record a transaction in history"""
     db = get_db()
     if db is None:
         return
@@ -217,17 +159,7 @@ async def record_transaction(user_id, guild_id, action, symbol, quantity, price)
 
 
 async def get_user_transactions(user_id, guild_id, limit=10):
-    """
-    Get recent transactions for a user
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-        limit (int): Number of transactions to return
-
-    Returns:
-        list: Recent transactions
-    """
+    """Get recent transactions for a user"""
     db = get_db()
     if db is None:
         return []
@@ -241,21 +173,11 @@ async def get_user_transactions(user_id, guild_id, limit=10):
 
 
 async def reset_account(user_id, guild_id):
-    """
-    Reset a user's paper trading account
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-
-    Returns:
-        bool: Success
-    """
+    """Reset a user's paper trading account"""
     db = get_db()
     if db is None:
         return False
 
-    # Delete account and transactions
     await db.paper_accounts.delete_one({
         "user_id": str(user_id),
         "guild_id": str(guild_id)
@@ -270,15 +192,7 @@ async def reset_account(user_id, guild_id):
 
 
 async def get_all_accounts(guild_id):
-    """
-    Get all paper trading accounts for a guild
-
-    Args:
-        guild_id (int): Discord guild ID
-
-    Returns:
-        list: All accounts in the guild
-    """
+    """Get all paper trading accounts for a guild"""
     db = get_db()
     if db is None:
         return []
@@ -288,16 +202,7 @@ async def get_all_accounts(guild_id):
 
 
 async def get_user_transaction_count(user_id, guild_id):
-    """
-    Get total number of transactions for a user
-
-    Args:
-        user_id (int): Discord user ID
-        guild_id (int): Discord guild ID
-
-    Returns:
-        int: Number of transactions
-    """
+    """Get total number of transactions for a user"""
     db = get_db()
     if db is None:
         return 0

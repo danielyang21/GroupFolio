@@ -1,7 +1,4 @@
-"""
-GroupFolio Discord Bot
-Main entry point for the bot
-"""
+"""GroupFolio Discord Bot - Main entry point"""
 import discord
 from discord.ext import commands
 import asyncio
@@ -9,16 +6,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 import config
 
-# Set up intents (permissions for the bot)
 intents = discord.Intents.default()
-intents.message_content = True  # Required to read message content
+intents.message_content = True
 intents.guilds = True
-#intents.members = True  # For future features
 
-# Create bot instance
 bot = commands.Bot(command_prefix=config.COMMAND_PREFIX, intents=intents)
 
-# MongoDB client (global access)
 db_client = None
 db = None
 
@@ -32,10 +25,8 @@ async def init_database():
         try:
             db_client = AsyncIOMotorClient(config.MONGODB_URI)
             db = db_client[config.DATABASE_NAME]
-            # Test the connection
             await db_client.admin.command('ping')
 
-            # Set the database reference for utils/database.py to use
             database.set_db(db)
 
             print('✓ Connected to MongoDB!')
